@@ -1,6 +1,16 @@
-# S3 RAW
+# S3 bucket Raw
 resource "aws_s3_bucket" "raw" {
-  bucket = "wind-farm-raw"
+  bucket = "${var.project_name}-raw"
+}
+
+# S3 bucket Curated
+resource "aws_s3_bucket" "processed" {
+  bucket = "${var.project_name}-processed"
+}
+
+# S3 bucket artifacts and scripts
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${var.project_name}-artifacts"
 }
 
 # Kinesis Stream
