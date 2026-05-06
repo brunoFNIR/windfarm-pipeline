@@ -10,6 +10,15 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Python caching
+.ipynb_checkpoints/
+
+# Spark/Glue temporary files
+spark-warehouse/
+derby.log
+metastore_db/
+checkpoint/
+
 # Logs
 *.log
 
