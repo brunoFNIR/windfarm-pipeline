@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # AWS Glue Catalog Database to store metadata tables
 resource "aws_glue_catalog_database" "windfarm_db" {
   name = "windfarm_db"
@@ -44,23 +46,69 @@ resource "aws_iam_role_policy" "glue_policy" {
         Effect = "Allow"
         Action = [
             "s3:GetObject",
-            "s3:PutObject"
+            "s3:PutObject",
+            "s3:ListBucket"
         ]
-        Resource = ["${aws_s3_bucket.artifacts.arn}/*"]
+        Resource = [
+          aws_s3_bucket.artifacts.arn,
+          "${aws_s3_bucket.artifacts.arn}/*"
+          ]
       },
       {
         # Permission to persist trasnformed Parquet data into the processed layer
         Effect = "Allow"
-        Action = ["s3:PutObject"]
-        Resource = ["${aws_s3_bucket.processed.arn}/*"]
+        Action = [
+          "s3:PutObject",
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:DeleteObject"
+          ]
+        Resource = [
+          aws_s3_bucket.processed.arn,
+          "${aws_s3_bucket.processed.arn}/*"
+          ]
+      },
+      {
+        # Permission to access Data Catalog
+        Effect = "Allow"
+        Action = [
+          "glue:GetDatabase",
+          "glue:GetDatabases",
+          "glue:GetTable",
+          "glue:GetTables",
+          "glue:GetPartition",
+          "glue:GetPartitions",
+          "glue:BatchGetPartition",
+          "glue:BatchCreatePartition",
+          "glue:CreateTable",
+          "glue:UpdateTable"
+        ]
+        Resource = [
+          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog",
+          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/default",
+          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:database/${aws_glue_catalog_database.windfarm_db.name}",
+          "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${aws_glue_catalog_database.windfarm_db.name}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = [
+          "arn:aws:logs:*:*:log-group:/aws-glue/crawlers*",
+          "arn:aws:logs:*:*:log-group:/aws-glue/jobs*"
+        ]
       }
     ]
   })
 }
 
 # Crawler to automatically infer schema from raw S3 files and populate the Data CAtalog
-resource "aws_glue_crawler" "crawler" {
-  name = "windfarm-crawler"
+resource "aws_glue_crawler" "raw_crawler" {
+  name = "windfarm-raw-crawler"
   role = aws_iam_role.glue_role.arn
   database_name = aws_glue_catalog_database.windfarm_db.name
 
@@ -120,11 +168,29 @@ resource "aws_glue_workflow" "windfarm_workflow" {
   name = "wind-farm-etl-workflow"
 }
 
-# Trigger to start the Spark Job
-resource "aws_glue_trigger" "start_job_trigger" {
-  name = "start-spark-job-trigger"
-  type = "ON_DEMAND" 
+# Trigger to start the Raw Crawler
+resource "aws_glue_trigger" "start_raw_crawler_trigger" {
+  name = "1-start-raw-crawler"
+  type = "ON_DEMAND"
   workflow_name = aws_glue_workflow.windfarm_workflow.name
+
+  actions {
+    crawler_name = aws_glue_crawler.raw_crawler.name
+  }
+}
+
+# Trigger to start the Spark Job AFTER Raw Crawler finishes
+resource "aws_glue_trigger" "start_spark_job_trigger" {
+  name = "2-start-spark-after-raw"
+  type = "CONDITIONAL" 
+  workflow_name = aws_glue_workflow.windfarm_workflow.name
+
+  predicate {
+    conditions {
+      crawler_name = aws_glue_crawler.raw_crawler.name
+      crawl_state = "SUCCEEDED"
+    }
+  }
 
   actions {
     job_name = aws_glue_job.wind_farm_process.name
@@ -132,7 +198,7 @@ resource "aws_glue_trigger" "start_job_trigger" {
 }
 
 # Trigger to start the Processed Crawler AFTER the Spark Job finishes
-resource "aws_glue_trigger" "start_crawler_trigger" {
+resource "aws_glue_trigger" "start_processed_crawler_trigger" {
   name = "start-processed-crawler-trigger"
   type = "CONDITIONAL" # starts only when a condition is met
   workflow_name = aws_glue_workflow.windfarm_workflow.name
@@ -140,8 +206,7 @@ resource "aws_glue_trigger" "start_crawler_trigger" {
   predicate {
     conditions {
       job_name = aws_glue_job.wind_farm_process.name
-      logical_operator = "EQUALS"
-      state = "SUCESSED" # only runs if Spark Job succeeds
+      state = "SUCCEEDED" # only runs if Spark Job succeeds
     }
   }
 
