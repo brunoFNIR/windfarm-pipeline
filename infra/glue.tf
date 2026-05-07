@@ -69,6 +69,18 @@ resource "aws_glue_crawler" "crawler" {
   }
 }
 
+# Crawler for the Processed layer
+resource "aws_glue_crawler" "processed_crawler" {
+  name = "windfarm-processed-crawler"
+  role = aws_iam_role.glue_role.arn
+  database_name = aws_glue_catalog_database.windfarm_db.name
+
+  # Points to the processed data bucket
+  s3_target {
+    path = "s3://${aws_s3_bucket.processed.bucket}/data/"
+  }
+}
+
 # Upload the local PySpark ETL Script to the S3 artifacts bucket
 resource "aws_s3_object" "glue_script" {
   bucket = aws_s3_bucket.artifacts.bucket
@@ -98,5 +110,42 @@ resource "aws_glue_job" "wind_farm_process" {
     "--continuous-log-logGroup" = "/aws-glue/jobs/${var.project_name}"
     "--spark-event-logs-path" = "s3://${aws_s3_bucket.artifacts.bucket}/spark-logs"
     "--enable-continuous-cloudwatch-log" = "true"
+  }
+}
+
+# --- ETL Pipeline Orchestration: Managing dependencies between Spark Job and Processed Crawler ---
+
+# Workflow: Logical container for the entire ETL process
+resource "aws_glue_workflow" "windfarm_workflow" {
+  name = "wind-farm-etl-workflow"
+}
+
+# Trigger to start the Spark Job
+resource "aws_glue_trigger" "start_job_trigger" {
+  name = "start-spark-job-trigger"
+  type = "ON_DEMAND" 
+  workflow_name = aws_glue_workflow.windfarm_workflow.name
+
+  actions {
+    job_name = aws_glue_job.wind_farm_process.name
+  }
+}
+
+# Trigger to start the Processed Crawler AFTER the Spark Job finishes
+resource "aws_glue_trigger" "start_crawler_trigger" {
+  name = "start-processed-crawler-trigger"
+  type = "CONDITIONAL" # starts only when a condition is met
+  workflow_name = aws_glue_workflow.windfarm_workflow.name
+
+  predicate {
+    conditions {
+      job_name = aws_glue_job.wind_farm_process.name
+      logical_operator = "EQUALS"
+      state = "SUCESSED" # only runs if Spark Job succeeds
+    }
+  }
+
+  actions {
+    crawler_name = aws_glue_crawler.processed_crawler.name
   }
 }
