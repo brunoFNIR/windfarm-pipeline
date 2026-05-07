@@ -86,7 +86,7 @@ resource "aws_s3_object" "glue_script" {
   bucket = aws_s3_bucket.artifacts.bucket
   key = "scripts/process_wind_farm.py"
   source = "../app/etl/process_wind_farm.py"
-  etag = filemdhash("../app/etl/process_wind_farm.py") # Triggres update if local file changes
+  etag = filemd5("../app/etl/process_wind_farm.py") # Triggres update if local file changes
 }
 
 # Defines the Glue Spark Job for data transformation
