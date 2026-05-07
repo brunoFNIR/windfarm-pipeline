@@ -17,7 +17,7 @@ while True:
   id_counter += 1
   data = uniform(20,25)
   record = {
-      'id': str(id),
+      'id': str(id_counter),
       'data': str(data),
       'type': 'temperature',
       'timestamp': str(datetime.now())

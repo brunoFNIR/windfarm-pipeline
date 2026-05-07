@@ -17,7 +17,7 @@ while True:
   id_counter += 1
   data = uniform(0.7,1)
   record = {
-      'id': str(id),
+      'id': str(id_counter),
       'data': str(data),
       'type': 'powerfactor',
       'timestamp': str(datetime.now())
