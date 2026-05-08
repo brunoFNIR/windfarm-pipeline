@@ -6,7 +6,6 @@
 <details open>
   <summary>Click to expand/collapse</summary>
   
-  # 🌬️ Wind Farm Real-Time Data Pipeline
 ### Data Lakehouse on AWS with Terraform, PySpark, and Medallion Architecture
 
 ## 📋 About the Project
